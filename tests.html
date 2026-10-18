@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>Money Flow tests</title>
+<style>body{font-family:sans-serif;padding:16px}.ok{color:#2e7d32}.ng{color:#c62828;font-weight:bold}</style></head>
+<body><h1>Money Flow ロジックテスト</h1><ul id="out"></ul>
+<script src="logic.js"></script>
+<script>
+var results = [];
+function t(name, fn) {
+  try { fn(); results.push([true, name]); }
+  catch (e) { results.push([false, name + ' → ' + e.message]); }
+}
+function eq(a, b, m) { if (a !== b) throw new Error((m || '') + ' 期待 ' + b + ' / 実際 ' + a); }
+var M = MF, YM = '2026-10';
+function exp(d, name, cat, amt, inc, ym) {
+  d.expenses.push({ id: M.uid(), name: name, category: cat, amount: amt, ym: ym || YM, day: 25, included: !!inc });
+}
+
+t('1 基本計算', function () {
+  var d = M.emptyData();
+  d.incomes.push({ id: 'a', name: '出演料', type: '舞台・出演料', amount: 100000, ym: YM, day: 1 });
+  d.incomes.push({ id: 'b', name: 'バイト', type: 'アルバイト', amount: 80000, ym: YM, day: 1 });
+  exp(d, 'メイン', 'main', 50000); exp(d, 'PayPay', 'paypay', 10000);
+  exp(d, 'その他カード', 'othercard', 20000); exp(d, 'サブスク', 'sub', 5000);
+  var s = M.summarize(d, YM);
+  eq(s.income, 180000, '収入'); eq(s.payout, 85000, '引き落とし'); eq(s.balance, 95000, '残額');
+});
+t('2 二重計上防止（手入力）', function () {
+  var d = M.emptyData(); exp(d, 'メイン', 'main', 50000); exp(d, 'ネトフリ', 'sub', 3000, true);
+  var s = M.summarize(d, YM);
+  eq(s.payout, 50000, '合計'); eq(s.byCat.sub.included, 3000, 'サブスク内訳は表示'); eq(s.subTotal, 3000);
+});
+t('2b 二重計上防止（サブスク登録の包含設定）', function () {
+  var d = M.emptyData(); exp(d, 'メイン', 'main', 50000);
+  d.subs.push({ id: 's', name: 'X', method: 'main', day: 5, startYm: YM, stopYm: null, included: true, changes: [{ fromYm: YM, amount: 3000 }] });
+  eq(M.summarize(d, YM).payout, 50000);
+});
+t('3 サブスク翌月反映・重複なし', function () {
+  var d = M.emptyData();
+  d.subs.push({ id: 's', name: '動画', method: 'main', day: 5, startYm: YM, stopYm: null, included: false, changes: [{ fromYm: YM, amount: 1500 }] });
+  var n = M.ymAdd(YM, 1);
+  eq(M.summarize(d, n).byCat.sub.counted, 1500, '翌月');
+  for (var i = 0; i < 5; i++) M.summarize(d, n);
+  eq(M.subItems(d, n).length, 1, '重複なし');
+  eq(M.subItems(d, M.ymAdd(YM, -1)).length, 0, '開始前は計上しない');
+});
+t('3b 料金変更は適用月以降のみ／停止', function () {
+  var d = M.emptyData(), s = { id: 's', name: 'A', method: 'main', day: 5, startYm: '2026-08', stopYm: null, included: false, changes: [{ fromYm: '2026-08', amount: 1000 }] };
+  d.subs.push(s); M.setChange(s, '2026-11', 1200);
+  eq(M.subItems(d, '2026-10')[0].amount, 1000, '過去月は不変'); eq(M.subItems(d, '2026-12')[0].amount, 1200);
+  s.stopYm = '2027-01'; eq(M.subItems(d, '2026-12').length, 1); eq(M.subItems(d, '2027-01').length, 0, '停止月以降は除外');
+  d.subMonths['2026-12|s'] = { amount: 1350 }; eq(M.subItems(d, '2026-12')[0].amount, 1350, '月別修正');
+});
+t('4 前月比', function () {
+  var c = M.compare(90000, 80000, true);
+  eq(M.fmtDelta(c.delta), '＋10,000円'); eq(M.fmtPct(c.pct), '＋12.5%');
+  var z = M.compare(5000, 0, true); eq(z.pct, null, '前月0円は率なし');
+  eq(M.compare(1, 0, false).available, false, 'データなし');
+  eq(M.fmtDelta(-1500), '−1,500円');
+});
+t('4b 月別推移で未入力を区別', function () {
+  var d = M.emptyData(); exp(d, 'a', 'main', 100, false, '2026-09');
+  var sr = M.series(d, YM, 3);
+  eq(sr.length, 3); eq(sr[0].hasData, false); eq(sr[1].hasData, true); eq(sr[2].hasData, false);
+});
+t('7 書き出し→復元', function () {
+  var d = M.emptyData(); exp(d, 'a', 'main', 100);
+  d.incomes.push({ id: 'i', name: 'x', type: 'その他', amount: 5, ym: YM, day: 1 });
+  d.subs.push({ id: 's', name: 'A', method: 'main', day: 1, startYm: YM, stopYm: null, included: false, changes: [{ fromYm: YM, amount: 9 }] });
+  d.subMonths[YM + '|s'] = { amount: 10 }; d.monthStatus[YM] = 'confirmed';
+  var r = M.parseImport(M.exportJSON(d));
+  eq(JSON.stringify(r), JSON.stringify(d));
+  var bad = false; try { M.parseImport('{"expenses":5}'); } catch (e) { bad = true; } eq(bad, true, '不正JSONは拒否');
+});
+t('表示整形', function () { eq(M.fmtYen(120000), '120,000円'); eq(M.fmtYen(0), '0円'); });
+
+var ul = document.getElementById('out');
+results.forEach(function (r) { var li = document.createElement('li'); li.className = r[0] ? 'ok' : 'ng'; li.textContent = (r[0] ? '✓ ' : '✗ ') + r[1]; ul.appendChild(li); });
+document.title = results.every(function (r) { return r[0]; }) ? 'ALL PASS' : 'FAIL';
+</script></body></html>
