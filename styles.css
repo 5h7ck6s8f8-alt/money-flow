@@ -130,3 +130,8 @@ input,select,textarea{font:inherit;color:inherit;font-size:16px} /* 16px: iOSの
 .gh{display:flex;align-items:center;justify-content:space-between;margin:2px 0 4px}
 .gh b{font-size:15px}
 .list-head{display:flex;justify-content:space-between;align-items:center;margin-top:20px}
+
+#update{position:fixed;left:0;right:0;top:0;z-index:60;display:none;justify-content:center;padding:calc(8px + env(safe-area-inset-top)) 12px 8px}
+#update.show{display:flex}
+#update .in{background:var(--ink);color:#fff;border-radius:99px;padding:8px 8px 8px 18px;display:flex;align-items:center;gap:12px;font-size:14px;box-shadow:var(--shadow)}
+#update button{background:#fff;color:var(--ink);border-radius:99px;padding:8px 16px;font-weight:700}

@@ -525,5 +525,26 @@
     } else if (e.key === 'Escape' && st.form && !dlgOpen) closeForm();
   });
 
+  /* ---------- 新しい版の確認（公開サイトが更新されたらボタンで更新） ---------- */
+  var APP_VERSION = '4';
+  function checkUpdate() {
+    if (location.protocol === 'file:') return;
+    fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j && j.v && j.v !== APP_VERSION) {
+        $('update').innerHTML = '<div class="in"><span>新しい版があります</span><button data-act="doUpdate">更新する</button></div>';
+        $('update').classList.add('show');
+      }
+    }).catch(function () {});
+  }
+  A.doUpdate = function () {
+    var done = function () { location.replace(location.pathname + '?r=' + Date.now()); };
+    var jobs = [];
+    if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }));
+    if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
+    Promise.all(jobs).then(done, done);
+  };
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) checkUpdate(); });
+  checkUpdate();
+
   render();
 })();
