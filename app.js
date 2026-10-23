@@ -118,6 +118,13 @@
       (s.balance < 0 ? '<div class="gentle">この月は支払いが収入を少し上回りそうです。支払いの時期や金額を見直すきっかけにしてみてください。</div>' : '') +
       '<div class="pair"><div class="box"><div class="cap">入ってくるお金</div><div class="num">' + yen(s.income) + '</div></div><div class="box"><div class="cap">引き落とし合計</div><div class="num">' + yen(s.payout) + '</div><div>' + deltaChip(cmp) + '<span class="small muted"> 先月比</span></div></div></div>' +
       '<div class="note">※ 登録した収入と支出だけで計算した予定額です。実際の銀行残高とは異なります。</div></section>';
+    var accTotal = data.accounts.reduce(function (a, x) { return a + x.amount; }, 0);
+    h += '<section class="card"><h2>いま口座にあるお金</h2>' + (data.accounts.length ? data.accounts.map(function (a) {
+      return '<button class="row" data-act="editAccount" data-id="' + esc(a.id) + '"><span class="grow"><div class="name">' + esc(a.name) + '</div></span><span class="amt">' + yen(a.amount) + '</span><span class="chev">›</span></button>';
+    }).join('') + '<div class="row" style="border-top:2px solid var(--line)"><span class="grow"><b>口座の合計</b></span><span class="amt">' + yen(accTotal) + '</span></div>' +
+      '<div class="pair" style="grid-template-columns:1fr"><div class="box" style="background:var(--sage-bg)"><div class="cap">総合計（口座の合計 ＋ ' + M.ymLabel(st.ym) + 'の差し引き残額）</div><div class="num" style="font-size:26px">' + yen(accTotal + s.balance) + '</div><div class="small muted">この月の予定が終わったあとに手元に残る見込みです</div></div></div>'
+      : '<div class="empty">口座のお金を入れると、総合計がわかります<br><button class="btn sage sm" data-act="addAccount">口座のお金を入力する</button></div>') +
+      (data.accounts.length ? '<button class="btn ghost sm" style="margin-top:10px" data-act="addAccount">＋ 口座を追加</button><div class="note">金額は自分で入力した値です。入金済みの収入を重ねて数えないよう、残高を更新するときは収入の入金状況も見直してください。</div>' : '') + '</section>';
     h += '<div class="actions"><button class="btn blue" data-act="addIncome">＋ 収入を追加</button><button class="btn" data-act="addExpense">＋ 支出を追加</button></div>';
     if (!s.hasData) {
       h += '<section class="card empty"><div style="font-size:28px">🌿</div><p>この月はまだ何も入力されていません。<br>まずは収入と、毎月のサブスクを入れてみましょう。</p><button class="btn sage" data-act="addSub">サブスクを登録する</button></section>';
@@ -268,6 +275,8 @@
       h += stepper('startYm', d.startYm, d.id ? '適用開始月' : '適用開始月（この月から毎月反映）');
       if (d.id && d.amount !== d.origAmount) h += stepper('applyYm', d.applyYm, '金額の変更を適用する月（過去月は変わりません）');
       if (d.id) h += '<div class="small muted">状態：' + (d.stopYm ? M.ymLabel(d.stopYm) + 'から停止中' : '利用中') + '</div>';
+    } else if (f.type === 'account') {
+      h += '<h3>' + (d.id ? '口座を編集' : '口座を追加') + '</h3>' + textField('f-name', 'name', '口座の名前', d.name, '例：給料の口座・現金') + amountField(d, '今あるお金');
     } else if (f.type === 'override') {
       h += '<h3>' + esc(d.name) + '：' + M.ymLabel(d.ym) + 'の金額</h3><p class="small muted">この月の予定金額だけを修正します。サブスク本体の設定や他の月は変わりません。</p>' + amountField(d, M.ymLabel(d.ym) + 'の金額') + '<div class="small muted">登録されている通常の金額：' + yen(d.planned) + '</div>';
     }
@@ -345,6 +354,8 @@
       } else {
         data.subs.push({ id: M.uid(), name: name, day: +d.day, method: d.method, included: !!d.included, startYm: d.startYm, stopYm: null, changes: [{ fromYm: d.startYm, amount: d.amount }] });
       }
+    } else if (f.type === 'account') {
+      upsert(data.accounts, { id: d.id || M.uid(), name: name, amount: d.amount });
     } else if (f.type === 'override') {
       (d.kind === 'sub' ? data.subMonths : data.recMonths)[d.ym + '|' + d.id] = { amount: d.amount };
     }
@@ -358,6 +369,7 @@
     if (!await confirmDlg(label + 'よろしいですか？', '削除する', true)) return;
     if (f.type === 'expense') data.expenses = data.expenses.filter(function (x) { return x.id !== d.id; });
     else if (f.type === 'income' && d.recId) data.recurring = data.recurring.filter(function (x) { return x.id !== d.recId; });
+    else if (f.type === 'account') data.accounts = data.accounts.filter(function (x) { return x.id !== d.id; });
     else if (f.type === 'income') data.incomes = data.incomes.filter(function (x) { return x.id !== d.id; });
     else if (f.type === 'sub') { data.subs = data.subs.filter(function (x) { return x.id !== d.id; }); Object.keys(data.subMonths).forEach(function (k) { if (k.split('|')[1] === d.id) delete data.subMonths[k]; }); }
     save(); st.form = null; renderModal(); render(); toast('削除しました');
@@ -415,6 +427,8 @@
     chartN: function (t) { st.n = +t.dataset.n; render(); },
     goCat: function (t) { st.cat = t.dataset.cat; st.tab = 'exp'; window.scrollTo(0, 0); render(); },
     filterCat: function (t) { st.cat = t.dataset.cat; render(); },
+    addAccount: function () { openForm('account', { name: data.accounts.length ? '' : '銀行口座', amount: null }); },
+    editAccount: function (t) { var a = data.accounts.filter(function (x) { return x.id === t.dataset.id; })[0]; if (a) openForm('account', { id: a.id, name: a.name, amount: a.amount }); },
     openBill: function (t) { openBill(t.dataset.cat); },
     goSubs: function () { st.tab = 'subs'; window.scrollTo(0, 0); render(); },
     addOther: function () { openForm('expense', newExpense('other')); },

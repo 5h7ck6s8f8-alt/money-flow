@@ -25,7 +25,8 @@
       subMonths: {},     // "ym|subId" -> {amount}  月ごとの確定/修正金額
       recurring: [],     // 定期収入（マスタ）
       recMonths: {},     // "ym|recId" -> {amount}
-      monthStatus: {}    // ym -> 'confirmed'
+      monthStatus: {},   // ym -> 'confirmed'
+      accounts: []       // 現在の口座残高 [{id,name,amount}]
     };
   }
 
@@ -183,7 +184,7 @@
   function validate(obj) {
     if (!obj || typeof obj !== 'object') throw new Error('JSONの形式が正しくありません');
     var base = emptyData();
-    ['incomes', 'expenses', 'subs', 'recurring', 'incomeTypes'].forEach(function (k) {
+    ['incomes', 'expenses', 'subs', 'recurring', 'incomeTypes', 'accounts'].forEach(function (k) {
       if (obj[k] !== undefined && !Array.isArray(obj[k])) throw new Error(k + ' が配列ではありません');
     });
     ['subMonths', 'recMonths', 'monthStatus'].forEach(function (k) {
