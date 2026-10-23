@@ -39,16 +39,20 @@
     var list = data.expenses.filter(function (e) { return e.ym === ym && e.category === cat && !e.included; });
     return list.length ? list.reduce(function (a, e) { return a + e.amount; }, 0) : null;
   }
-  function setBill(cat, ym, amount) {
+  function billDay(cat, ym) { // その月の引き落とし日。なければ直近の月の日付、それもなければ25日
+    for (var i = 0; i < 24; i++) {
+      var m = M.ymAdd(ym, -i), e = data.expenses.filter(function (x) { return x.ym === m && x.category === cat && x.day; })[0];
+      if (e) return e.day;
+    }
+    return 25;
+  }
+  function setBill(cat, ym, amount, day) {
     data.expenses = data.expenses.filter(function (e) { return !(e.ym === ym && e.category === cat && !e.included); });
-    if (amount != null) data.expenses.push({ id: M.uid(), name: CATK[cat].label, category: cat, amount: amount, ym: ym, day: null, note: '', included: false, bill: true });
+    if (amount != null) data.expenses.push({ id: M.uid(), name: CATK[cat].label, category: cat, amount: amount, ym: ym, day: day ? +day : null, note: '', included: false, bill: true });
     save();
   }
   function openBill(cat) {
-    var ym = st.ym;
-    openPad(M.ymLabel(ym) + 'の' + CATK[cat].label + 'の引き落とし額', billAmount(cat, ym), function (v) {
-      setBill(cat, ym, v); if (st.form) { st.form = null; renderModal(); } render(); toast(v == null ? '入力を消しました' : '保存しました');
-    });
+    openForm('expense', { name: '', category: cat, fixed: true, amount: billAmount(cat, st.ym), hadBill: billAmount(cat, st.ym) != null, day: billDay(cat, st.ym), ym: st.ym, note: '', included: false });
   }
   function disp(sum, key) { var b = sum.byCat[key]; return b.counted + b.included; } // 内訳表示用（合計用とは別）
   function catDelta(key) {
@@ -115,21 +119,36 @@
     var h = '';
     var cmp = M.compare(s.payout, prevS.payout, prevS.hasData);
     var accTotal = data.accounts.reduce(function (a, x) { return a + x.amount; }, 0), hasAcc = data.accounts.length > 0;
-    var fin = accTotal + s.balance, sg = function (n) { return (n < 0 ? '−' : '') + M.fmtNum(n); };
-    h += '<section class="card hero"><div class="cap">' + (hasAcc ? M.ymLabel(st.ym) + 'の予定が終わったあとに残るお金' : M.ymLabel(st.ym) + 'の差し引き残額（予定）') + '</div><div class="big">' + sg(hasAcc ? fin : s.balance) + '<small>円</small></div>' +
-      ((hasAcc ? fin : s.balance) < 0 ? '<div class="gentle">このままだと少し足りなくなりそうです。支払いの時期や金額を見直すきっかけにしてみてください。</div>' : '') +
-      '<div class="calc small" style="margin-top:12px;line-height:1.9">' + (hasAcc ? '<div style="display:flex;justify-content:space-between"><span>いま口座にあるお金</span><b>' + yen(accTotal) + '</b></div>' : '') +
-      '<div style="display:flex;justify-content:space-between"><span>＋ 入ってくるお金</span><b>' + yen(s.income) + '</b></div>' +
-      '<div style="display:flex;justify-content:space-between"><span>− 引き落とし合計 <span class="muted">' + deltaChip(cmp) + ' 先月比</span></span><b>' + yen(s.payout) + '</b></div>' +
-      '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--line);margin-top:4px;padding-top:4px"><span>' + (hasAcc ? '＝ 最終的に残るお金' : '＝ 差し引き残額') + '</span><b>' + sg(hasAcc ? fin : s.balance) + '円</b></div></div>' +
+    var now = M.ymNow(), td = new Date().getDate(), future = st.ym >= now;
+    var sg = function (n) { return (n < 0 ? '−' : '') + M.fmtNum(n); };
+    var row2 = function (l, r, extra) { return '<div style="display:flex;justify-content:space-between;gap:8px' + (extra || '') + '"><span>' + l + '</span><b>' + r + '</b></div>'; };
+    var tl = future ? M.timeline(data, now, td, st.ym) : M.timeline(data, st.ym, 0, st.ym);
+    var tin = 0, tout = 0; tl.forEach(function (e) { if (e.kind === 'in') tin += e.amount; else tout += e.amount; });
+    var useTl = hasAcc && future, fin = accTotal + tin - tout;
+    var big = useTl ? fin : s.balance;
+    var span = st.ym === now ? '今日から' + M.ymShort(st.ym) + '末まで' : '今日から' + M.ymLabel(st.ym) + '末まで';
+    h += '<section class="card hero"><div class="cap">' + (useTl ? M.ymLabel(st.ym) + '末に残るお金（予定）' : M.ymLabel(st.ym) + 'の差し引き残額（予定）') + '</div><div class="big">' + sg(big) + '<small>円</small></div>' +
+      (big < 0 ? '<div class="gentle">このままだと少し足りなくなりそうです。支払いの時期や金額を見直すきっかけにしてみてください。</div>' : '') +
+      '<div class="small" style="margin-top:12px;line-height:1.9">' +
+      (useTl ? row2('いま口座にあるお金', yen(accTotal)) + row2('＋ ' + span + '入るお金', yen(tin)) + row2('− ' + span + '引き落とされるお金', yen(tout)) +
+        row2('＝ 最終的に残るお金', sg(fin) + '円', ';border-top:1px solid var(--line);margin-top:4px;padding-top:4px')
+       : row2('＋ 入ってくるお金', yen(s.income)) + row2('− 引き落とし合計 ' + deltaChip(cmp), yen(s.payout)) + row2('＝ 差し引き残額', sg(s.balance) + '円', ';border-top:1px solid var(--line);margin-top:4px;padding-top:4px')) + '</div>' +
       (hasAcc ? '' : '<div class="gentle" style="background:var(--lav-bg);color:#6A5C9E">口座にあるお金を入れると、最終的に残るお金がわかります。</div>') +
-      '<div class="note">※ 登録した金額だけで計算した予定額です。実際の銀行残高とは異なることがあります。</div></section>';
-    h += '<section class="card"><h2>いま口座にあるお金</h2>' + (data.accounts.length ? data.accounts.map(function (a) {
+      '<div class="note">' + (useTl && st.ym === now ? '※ 今日より前の入金・引き落としは、口座のお金にすでに反映されているものとして計算しています。<br>' : '') + '※ 登録した金額だけで計算した予定額です。実際の銀行残高とは異なることがあります。</div></section>';
+    // 日付順のお金の流れ
+    var mEv = tl.filter(function (e) { return e.ym === st.ym; });
+    if (mEv.length) {
+      var run = accTotal; tl.forEach(function (e) { if (e.ym < st.ym) run += e.kind === 'in' ? e.amount : -e.amount; });
+      h += '<section class="card"><h2>' + M.ymLabel(st.ym) + 'のお金の流れ（日付順）</h2>' + mEv.map(function (e) {
+        run += e.kind === 'in' ? e.amount : -e.amount;
+        return '<div class="row" style="padding:10px 0"><span class="small muted" style="width:3.2em">' + (e.day === 99 ? '日付なし' : e.day + '日') + '</span><span class="grow"><div class="name">' + esc(e.name) + '</div>' + (useTl ? '<div class="small muted">残り ' + yen(run) + '</div>' : '') + '</span><span class="amt" style="font-size:15px;color:' + (e.kind === 'in' ? 'var(--sage-d)' : 'var(--ink)') + '">' + (e.kind === 'in' ? '＋' : '−') + M.fmtNum(e.amount) + '円</span></div>';
+      }).join('') + '</section>';
+    }
+    h += '<section class="card"><h2>いま口座にあるお金</h2>' + (hasAcc ? data.accounts.map(function (a) {
       return '<button class="row" data-act="editAccount" data-id="' + esc(a.id) + '"><span class="grow"><div class="name">' + esc(a.name) + '</div></span><span class="amt">' + yen(a.amount) + '</span><span class="chev">›</span></button>';
     }).join('') + '<div class="row" style="border-top:2px solid var(--line)"><span class="grow"><b>口座の合計</b></span><span class="amt">' + yen(accTotal) + '</span></div>' +
-      '<div class="pair" style="grid-template-columns:1fr"><div class="box" style="background:var(--sage-bg)"><div class="cap">総合計（口座の合計 ＋ ' + M.ymLabel(st.ym) + 'の差し引き残額）</div><div class="num" style="font-size:26px">' + yen(accTotal + s.balance) + '</div><div class="small muted">この月の予定が終わったあとに手元に残る見込みです</div></div></div>'
-      : '<div class="empty">口座のお金を入れると、総合計がわかります<br><button class="btn sage sm" data-act="addAccount">口座のお金を入力する</button></div>') +
-      (data.accounts.length ? '<button class="btn ghost sm" style="margin-top:10px" data-act="addAccount">＋ 口座を追加</button><div class="note">金額は自分で入力した値です。入金済みの収入を重ねて数えないよう、残高を更新するときは収入の入金状況も見直してください。</div>' : '') + '</section>';
+      '<button class="btn ghost sm" style="margin-top:10px" data-act="addAccount">＋ 口座を追加</button>'
+      : '<div class="empty">口座のお金を入れると、最終的に残るお金がわかります<br><button class="btn sage sm" data-act="addAccount">口座のお金を入力する</button></div>') + '</section>';
     h += '<div class="actions"><button class="btn blue" data-act="addIncome">＋ 収入を追加</button><button class="btn" data-act="addExpense">＋ 支出を追加</button></div>';
     if (!s.hasData) {
       h += '<section class="card empty"><div style="font-size:28px">🌿</div><p>この月はまだ何も入力されていません。<br>まずは収入と、毎月のサブスクを入れてみましょう。</p><button class="btn sage" data-act="addSub">サブスクを登録する</button></section>';
@@ -243,9 +262,9 @@
   function stepper(field, ym, label) {
     return '<div class="field"><div class="lab">' + label + '</div><div class="stepper"><button class="iconbtn" data-act="ymStep" data-f="' + field + '" data-d="-1" aria-label="前の月">‹</button><div class="v">' + M.ymLabel(ym) + '</div><button class="iconbtn" data-act="ymStep" data-f="' + field + '" data-d="1" aria-label="次の月">›</button></div></div>';
   }
-  function daySel(d) {
+  function daySel(d, label) {
     var o = ''; for (var i = 1; i <= 31; i++) o += '<option value="' + i + '"' + (+d.day === i ? ' selected' : '') + '>' + i + '日</option>';
-    return '<div class="field"><label for="f-day">支払い日・入金日</label><select id="f-day" class="input" data-f="day">' + o + '</select></div>';
+    return '<div class="field"><label for="f-day">' + (label || '支払い日・入金日') + '</label><select id="f-day" class="input" data-f="day">' + o + '</select></div>';
   }
   function amountField(d, label) {
     return '<div class="field"><div class="lab">' + label + '</div><button type="button" class="amount-btn ' + (d.amount == null ? 'ph' : '') + '" data-act="openPad" data-f="amount">' + (d.amount == null ? 'タップして金額を入力' : yen(d.amount)) + '</button></div>';
@@ -260,10 +279,10 @@
     if (f.type === 'expense') {
       var isB = BILL.indexOf(d.category) >= 0;
       h += '<h3>' + (d.id ? '支払いを編集' : '支出を追加') + '</h3>';
-      if (!d.id) h += '<div class="field"><div class="lab">どこの引き落とし？</div><div class="chips">' + CATS.filter(function (c) { return c.key !== 'sub'; }).map(function (c) { return '<button type="button" class="chip ' + (d.category === c.key ? 'on' : '') + '" data-act="pickCat" data-v="' + c.key + '">' + c.label + '</button>'; }).join('') + '</div></div>';
-      if (isB) h += '<p class="small muted" style="margin:0">' + M.ymLabel(st.ym) + 'の引き落とし額だけ入力します。入力済みの場合は上書きされます。</p>';
+      if (!d.id && !d.fixed) h += '<div class="field"><div class="lab">どこの引き落とし？</div><div class="chips">' + CATS.filter(function (c) { return c.key !== 'sub'; }).map(function (c) { return '<button type="button" class="chip ' + (d.category === c.key ? 'on' : '') + '" data-act="pickCat" data-v="' + c.key + '">' + c.label + '</button>'; }).join('') + '</div></div>';
+      if (isB) h += '<p class="small muted" style="margin:0"><b>' + CATK[d.category].label + '</b>の' + M.ymLabel(st.ym) + 'の引き落とし額と引き落とし日だけ入力します。</p>';
       else h += textField('f-name', 'name', '支払い名', d.name, '例：家賃');
-      h += amountField(d, isB ? M.ymLabel(st.ym) + 'の引き落とし額' : '金額');
+      h += amountField(d, isB ? M.ymLabel(st.ym) + 'の引き落とし額' : '金額') + daySel(d, '引き落とし日（毎月）');
     } else if (f.type === 'income') {
       h += '<h3>' + (d.recId ? '定期収入を編集' : d.id ? '収入を編集' : '収入を追加') + '</h3>';
       h += '<div class="field"><div class="lab">収入の種類</div><div class="chips">' + data.incomeTypes.map(function (t) { return '<button type="button" class="chip ' + (d.type === t ? 'on' : '') + '" data-act="pickType" data-v="' + esc(t) + '">' + esc(t) + '</button>'; }).join('') + '<button type="button" class="chip" data-act="addType">＋ 追加</button></div></div>';
@@ -289,6 +308,7 @@
     if (f.type === 'sub' && d.id) h += '<div class="btnrow">' + (d.stopYm ? '<button class="btn ghost" data-act="resumeSub">この月から再開</button>' : '<button class="btn ghost" data-act="stopSub">この月から停止・解約</button>') + '<button class="btn danger" data-act="deleteForm">削除</button></div>';
     else if (f.type === 'income' && d.recId) h += '<div class="btnrow"><button class="btn ghost" data-act="overrideRec">この月だけ金額を修正</button></div><div class="btnrow"><button class="btn ghost" data-act="stopRec">この月から停止</button><button class="btn danger" data-act="deleteForm">削除</button></div>';
     else if (f.type === 'override') h += '<div class="btnrow"><button class="btn ghost" data-act="resetOverride">予定額に戻す</button>' + '<button class="btn ghost" data-act="openMaster">本体の設定を開く</button></div>';
+    else if (f.type === 'expense' && d.fixed && d.hadBill) h += '<div class="btnrow"><button class="btn danger" data-act="deleteBill">この月の入力を消す</button></div>';
     else if (d.id) h += '<div class="btnrow"><button class="btn danger" data-act="deleteForm">削除</button></div>';
     var inputFocus = document.activeElement && document.activeElement.id;
     el.innerHTML = '<div class="scrim" data-act="closeForm"></div><div class="sheet" role="dialog" aria-modal="true">' + h + '</div>';
@@ -299,7 +319,7 @@
   function openForm(type, d) { st.form = { type: type, d: d, err: '' }; renderModal(); }
   function closeForm() { st.form = null; st.pad = null; renderModal(); renderPad(); }
 
-  function newExpense(cat) { cat = cat && cat !== 'sub' ? cat : 'main'; return { name: '', category: cat, amount: BILL.indexOf(cat) >= 0 ? billAmount(cat, st.ym) : null, day: null, ym: st.ym, note: '', included: false }; }
+  function newExpense(cat) { cat = cat && cat !== 'sub' ? cat : 'main'; return { name: '', category: cat, amount: BILL.indexOf(cat) >= 0 ? billAmount(cat, st.ym) : null, day: BILL.indexOf(cat) >= 0 ? billDay(cat, st.ym) : 25, ym: st.ym, note: '', included: false }; }
   function newIncome() { return { name: '', type: data.incomeTypes[0], amount: null, day: 25, ym: st.ym, note: '', recurring: false }; }
   function newSub() { return { name: '', amount: null, day: 1, method: 'main', included: false, startYm: st.ym }; }
 
@@ -336,7 +356,7 @@
     else if (d.amount == null) err = '金額を入力してください';
     if (err) { f.err = err; $('err').textContent = err; return; }
     if (f.type === 'expense') {
-      if (BILL.indexOf(d.category) >= 0) setBill(d.category, st.ym, d.amount);
+      if (BILL.indexOf(d.category) >= 0) setBill(d.category, st.ym, d.amount, d.day);
       else upsert(data.expenses, { id: d.id || M.uid(), name: name, category: d.category, amount: d.amount, ym: d.ym, day: d.day ? +d.day : null, note: (d.note || '').trim(), included: !!d.included });
     } else if (f.type === 'income') {
       if (d.recId) {
@@ -436,6 +456,10 @@
     editAccount: function (t) { var a = data.accounts.filter(function (x) { return x.id === t.dataset.id; })[0]; if (a) openForm('account', { id: a.id, name: a.name, amount: a.amount }); },
     openBill: function (t) { openBill(t.dataset.cat); },
     goSubs: function () { st.tab = 'subs'; window.scrollTo(0, 0); render(); },
+    deleteBill: async function () {
+      var d = st.form.d; if (!await confirmDlg(M.ymLabel(st.ym) + 'の' + CATK[d.category].label + 'の入力を消します。', '消す', true)) return;
+      setBill(d.category, st.ym, null); st.form = null; renderModal(); render(); toast('入力を消しました');
+    },
     addOther: function () { openForm('expense', newExpense('other')); },
     addExpense: function () { openForm('expense', newExpense(st.cat !== 'all' && st.tab === 'exp' ? st.cat : 'main')); },
     addIncome: function () { openForm('income', newIncome()); },
@@ -445,7 +469,7 @@
     closeForm: closeForm,
     saveForm: saveForm,
     deleteForm: deleteForm,
-    pickCat: function (t) { var d = st.form.d; d.category = t.dataset.v; d.amount = BILL.indexOf(d.category) >= 0 ? billAmount(d.category, st.ym) : null; renderModal(); },
+    pickCat: function (t) { var d = st.form.d; d.category = t.dataset.v; d.amount = BILL.indexOf(d.category) >= 0 ? billAmount(d.category, st.ym) : null; d.day = BILL.indexOf(d.category) >= 0 ? billDay(d.category, st.ym) : 25; renderModal(); },
     pickType: function (t) { st.form.d.type = t.dataset.v; renderModal(); },
     pickMethod: function (t) { st.form.d.method = t.dataset.v; renderModal(); },
     toggleIncluded: function () { st.form.d.included = !st.form.d.included; renderModal(); },
@@ -531,7 +555,7 @@
   });
 
   /* ---------- 新しい版の確認（公開サイトが更新されたらボタンで更新） ---------- */
-  var APP_VERSION = '5';
+  var APP_VERSION = '6';
   function checkUpdate() {
     if (location.protocol === 'file:') return;
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {

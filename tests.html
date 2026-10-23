@@ -73,6 +73,19 @@ t('7 書き出し→復元', function () {
 });
 t('表示整形', function () { eq(M.fmtYen(120000), '120,000円'); eq(M.fmtYen(0), '0円'); });
 
+t('8 日付順の流れ（今日より前は除く／翌月も通算）', function () {
+  var d = M.emptyData();
+  d.incomes.push({ id: 'a', name: '給料', type: 'x', amount: 100000, ym: '2026-10', day: 25 });
+  d.expenses.push({ id: 'b', name: 'PayPay', category: 'paypay', amount: 10000, ym: '2026-10', day: 20, included: false });
+  d.expenses.push({ id: 'c', name: 'メイン', category: 'main', amount: 50000, ym: '2026-10', day: 27, included: false });
+  d.expenses.push({ id: 'e', name: 'サブ含む', category: 'sub', amount: 3000, ym: '2026-10', day: 28, included: true });
+  d.expenses.push({ id: 'f', name: '来月', category: 'main', amount: 20000, ym: '2026-11', day: 5, included: false });
+  var ev = M.timeline(d, '2026-10', 23, '2026-10');
+  eq(ev.length, 2, '今日(23日)以降のみ・含む分は除外'); eq(ev[0].name, '給料'); eq(ev[1].name, 'メイン');
+  var ev2 = M.timeline(d, '2026-10', 23, '2026-11'); eq(ev2.length, 3, '翌月まで通算'); eq(ev2[2].ym, '2026-11');
+  eq(M.timeline(d, '2026-10', 0, '2026-10').length, 3, '全日');
+});
+
 var ul = document.getElementById('out');
 results.forEach(function (r) { var li = document.createElement('li'); li.className = r[0] ? 'ok' : 'ng'; li.textContent = (r[0] ? '✓ ' : '✗ ') + r[1]; ul.appendChild(li); });
 document.title = results.every(function (r) { return r[0]; }) ? 'ALL PASS' : 'FAIL';

@@ -154,6 +154,20 @@
     };
   }
 
+  /* ---------- 日付順のお金の流れ（カード請求に含まれる分は除く） ----------
+     fromYm の fromDay 日以降〜toYm の月末まで。日付未設定は月末扱い(99)。 */
+  function timeline(data, fromYm, fromDay, toYm) {
+    var ev = [];
+    for (var ym = fromYm; ym <= toYm; ym = ymAdd(ym, 1)) {
+      var mi = monthItems(data, ym);
+      mi.incomes.forEach(function (i) { ev.push({ ym: ym, day: i.day || 99, kind: 'in', name: i.name, amount: i.amount, scheduled: !!i.scheduled }); });
+      mi.payments.forEach(function (p) { if (!p.included) ev.push({ ym: ym, day: p.day || 99, kind: 'out', name: p.name, amount: p.amount, category: p.category }); });
+    }
+    ev = ev.filter(function (e) { return e.ym > fromYm || e.day >= fromDay; });
+    ev.sort(function (a, b) { return a.ym < b.ym ? -1 : a.ym > b.ym ? 1 : a.day - b.day || (a.kind === 'in' ? -1 : 1); });
+    return ev;
+  }
+
   /* ---------- 前月比 ---------- */
   function compare(cur, prev, hasPrev) {
     if (!hasPrev) return { available: false, reason: 'nodata' };
@@ -209,7 +223,7 @@
     fmtNum: fmtNum, fmtYen: fmtYen, fmtDelta: fmtDelta, fmtPct: fmtPct, uid: uid, toInt: toInt,
     amountAt: amountAt, activeIn: activeIn, setChange: setChange,
     subItems: subItems, recItems: recItems, monthItems: monthItems, summarize: summarize,
-    compare: compare, compareCat: compareCat, comparePayout: comparePayout, series: series,
+    compare: compare, timeline: timeline, compareCat: compareCat, comparePayout: comparePayout, series: series,
     validate: validate, exportJSON: exportJSON, parseImport: parseImport
   };
 })(typeof window !== 'undefined' ? window : globalThis);

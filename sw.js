@@ -1,5 +1,5 @@
-const V = 'moneyflow-v5';
-const FILES = ['./', './index.html', './styles.css?v=5', './logic.js?v=5', './app.js?v=5', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
+const V = 'moneyflow-v6';
+const FILES = ['./', './index.html', './styles.css?v=6', './logic.js?v=6', './app.js?v=6', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
