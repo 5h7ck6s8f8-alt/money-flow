@@ -114,11 +114,16 @@
     var s = M.summarize(data, st.ym), prevS = M.summarize(data, M.ymAdd(st.ym, -1));
     var h = '';
     var cmp = M.compare(s.payout, prevS.payout, prevS.hasData);
-    h += '<section class="card hero"><div class="cap">' + M.ymLabel(st.ym) + 'の差し引き残額（予定）</div><div class="big">' + (s.balance < 0 ? '−' : '') + M.fmtNum(s.balance) + '<small>円</small></div>' +
-      (s.balance < 0 ? '<div class="gentle">この月は支払いが収入を少し上回りそうです。支払いの時期や金額を見直すきっかけにしてみてください。</div>' : '') +
-      '<div class="pair"><div class="box"><div class="cap">入ってくるお金</div><div class="num">' + yen(s.income) + '</div></div><div class="box"><div class="cap">引き落とし合計</div><div class="num">' + yen(s.payout) + '</div><div>' + deltaChip(cmp) + '<span class="small muted"> 先月比</span></div></div></div>' +
-      '<div class="note">※ 登録した収入と支出だけで計算した予定額です。実際の銀行残高とは異なります。</div></section>';
-    var accTotal = data.accounts.reduce(function (a, x) { return a + x.amount; }, 0);
+    var accTotal = data.accounts.reduce(function (a, x) { return a + x.amount; }, 0), hasAcc = data.accounts.length > 0;
+    var fin = accTotal + s.balance, sg = function (n) { return (n < 0 ? '−' : '') + M.fmtNum(n); };
+    h += '<section class="card hero"><div class="cap">' + (hasAcc ? M.ymLabel(st.ym) + 'の予定が終わったあとに残るお金' : M.ymLabel(st.ym) + 'の差し引き残額（予定）') + '</div><div class="big">' + sg(hasAcc ? fin : s.balance) + '<small>円</small></div>' +
+      ((hasAcc ? fin : s.balance) < 0 ? '<div class="gentle">このままだと少し足りなくなりそうです。支払いの時期や金額を見直すきっかけにしてみてください。</div>' : '') +
+      '<div class="calc small" style="margin-top:12px;line-height:1.9">' + (hasAcc ? '<div style="display:flex;justify-content:space-between"><span>いま口座にあるお金</span><b>' + yen(accTotal) + '</b></div>' : '') +
+      '<div style="display:flex;justify-content:space-between"><span>＋ 入ってくるお金</span><b>' + yen(s.income) + '</b></div>' +
+      '<div style="display:flex;justify-content:space-between"><span>− 引き落とし合計 <span class="muted">' + deltaChip(cmp) + ' 先月比</span></span><b>' + yen(s.payout) + '</b></div>' +
+      '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--line);margin-top:4px;padding-top:4px"><span>' + (hasAcc ? '＝ 最終的に残るお金' : '＝ 差し引き残額') + '</span><b>' + sg(hasAcc ? fin : s.balance) + '円</b></div></div>' +
+      (hasAcc ? '' : '<div class="gentle" style="background:var(--lav-bg);color:#6A5C9E">口座にあるお金を入れると、最終的に残るお金がわかります。</div>') +
+      '<div class="note">※ 登録した金額だけで計算した予定額です。実際の銀行残高とは異なることがあります。</div></section>';
     h += '<section class="card"><h2>いま口座にあるお金</h2>' + (data.accounts.length ? data.accounts.map(function (a) {
       return '<button class="row" data-act="editAccount" data-id="' + esc(a.id) + '"><span class="grow"><div class="name">' + esc(a.name) + '</div></span><span class="amt">' + yen(a.amount) + '</span><span class="chev">›</span></button>';
     }).join('') + '<div class="row" style="border-top:2px solid var(--line)"><span class="grow"><b>口座の合計</b></span><span class="amt">' + yen(accTotal) + '</span></div>' +
@@ -526,7 +531,7 @@
   });
 
   /* ---------- 新しい版の確認（公開サイトが更新されたらボタンで更新） ---------- */
-  var APP_VERSION = '4';
+  var APP_VERSION = '5';
   function checkUpdate() {
     if (location.protocol === 'file:') return;
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
